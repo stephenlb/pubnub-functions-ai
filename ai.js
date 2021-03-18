@@ -322,7 +322,7 @@ class NeuralNet {
                 now = +new Date;
                 let cost = this.losses.reduce((a,b)=>a+b)/this.losses.length;
                 console.log(
-                    'training', (epoch + '').padEnd(6)
+                    'epoch', (epoch + '').padEnd(5)
                 ,   'cost', cost
                 );
             }
