@@ -529,7 +529,6 @@ Layer.generate = (input, output, type='standard', density=3) => {
         ,   Layer({ input: dense, output: output, activation: 'linear'  })],
         reLU : () => [
             Layer({ input: input, output: dense,  activation: 'reLU'   })
-        //,   Layer({ input: dense, output: dense,  activation: 'tanh'   })
         ,   Layer({ input: dense, output: output, activation: 'linear' })],
         deep : () => [
             Layer({ input: input, output: dense,  activation: 'tanh'   })
