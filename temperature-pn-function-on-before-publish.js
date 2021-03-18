@@ -7,86 +7,53 @@ const xhr = require("xhr");
 // Local Cache
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 let preTrainedModel;
-let modelFile = 
+const modelDomain  = 'stephenlb.github.io';
+const modelFile    = 'pubnub-functions-ai/temperature.pre-trained.json';
+const modelFileURI = `http://${modelDomain}/${modelFile}`;
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 // Main
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 export default (request) => {
-    if (!preTrainedModel) return xhr.fetch("https://neutrinoapi.com/geocode-address").then((serverResponse) => {
-        // handle server response
+    if (!preTrainedModel) return xhr.fetch(modelFileURI).then( response => {
+        const body = response.body;
+        preTrainedModel = new NeuralNet({ type : 'tanh', learn : 0.001 });
+        preTrainedModel.load(body);
+        const analysis = analize(request.message);
+        request.message.analysis = analysis;
+        return request.ok();
     }).catch((err) => {
-        // handle request failure
+        return request.ok();
     });
 
-  console.log('request',request);
-
-
-  
-  request.message = 'Hello World!'; // modify message payload
-  console.log("message:",request.message); //message Payload
-  console.log("channel:",request.channels[0]); //channel
-  console.log("uuid:",request.params.uuid); //uuid
-  
-  return request.ok(); // return a promise when you're done
+    const analysis = analize(request.message);
+    request.message.analysis = analysis;
+    return request.ok();
 };
 
-function main() {
-    const training = generateTestTrainingSampleSet(2000);
-    const testing  = generateTestTrainingSampleSet(16);
-
-    // AI Training
-    const nn = new ai.NeuralNet({ type : 'tanh', learn : 0.001 });
-    nn.train({ dataset: training, epochs: 10000, batchSize: 10 });
-
-    // need a vectorizor
-    // makes sure time +1 so minute/hour/day don't zero out
-
-    // Predict
-    let inputs      = testing.map( m => m[0] );
-    let targets     = testing.map( m => m[1] );
-    let predictions = nn.predict(inputs).map(a => a.map(a => Math.round(a)));
-
-    console.log('\n');
-    console.log('predictions', predictions.map(m => m[0]));
-    console.log('targets    ', targets.map(m => m[0]));
-    console.log('\n');
-    console.log('size', nn.matrixSize());
-    console.log('\n');
-}
-
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-// Generate Test Data
+// Analyze for Anomaly
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-function generateTestTrainingSampleSet(samples) {
-    return ai.Tensor(samples, i => generateTestTrainingSample() );
-}
-    
-function generateTestTrainingSample() {
-    // Ranges of time
-    const days    =  7; // Day of Week 1-7
-    const hours   = 24; // Hour
-    const minutes = 60; // Minute
+function analize(message) {
+    const threshold   = message.threshold || 5;
+    const temperature = message.temperature;
+    const date        = dateFromTimestamp(message.timestamp);
+    const vector      = timeVector(date);
+    const expected    = preTrainedModel.predict([vector])[0][0];
+    const offset      = Math.abs(temperature - expected);
+    const proximity   = Math.round(Math.abs(Math.abs((temperature / expected) - 1.0) * 100 - 100));
+    const exceeded    = offset > threshold;
 
-    // Bit depths
-    const dayBits    = 7; // Day of Week 1-7 OneHot
-    const hourBits   = 5; // Hour            Encoded
-    const minuteBits = 6; // Minute          Encoded
-
-    // Random Sample Generation
-    const day    = rnd(days);
-    const hour   = rnd(hours);
-    const minute = rnd(minutes);
-
-    // Create Vectorized Sample
-    const input = []
-        .concat(ai.Tensor(dayBits,    i => day === 1 + i           ? 1 : 0))
-        .concat(ai.Tensor(hourBits,   i => Math.pow(2, i) & hour   ? 1 : 0))
-        .concat(ai.Tensor(minuteBits, i => Math.pow(2, i) & minute ? 1 : 0));
-    const base    = input[0] || input[1] ? 80 : 40;
-    const output  = [base - rnd(2) + rnd(2)];
-
-    return [input, output];
+    return {
+        threshold   : threshold,
+        temperature : temperature,
+        date        : date+'',
+        vector      : vector,
+        expected    : expected,
+        offset      : offset,
+        proximity   : `${proximity}%`,
+        safe        : !exceeded,
+    };
 }
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
@@ -110,9 +77,9 @@ function timeVector(date) {
     const minute      = date.getMinutes() + 1;
 
     const matrix      = []
-        .concat(ai.Tensor(dayBits,    i => day === 1 + i           ? 1 : 0))
-        .concat(ai.Tensor(hourBits,   i => Math.pow(2, i) & hour   ? 1 : 0))
-        .concat(ai.Tensor(minuteBits, i => Math.pow(2, i) & minute ? 1 : 0));
+        .concat(Tensor(dayBits,    i => day === 1 + i           ? 1 : 0))
+        .concat(Tensor(hourBits,   i => Math.pow(2, i) & hour   ? 1 : 0))
+        .concat(Tensor(minuteBits, i => Math.pow(2, i) & minute ? 1 : 0));
 
     return matrix;
 }
@@ -127,13 +94,286 @@ function dateFromTimestamp(timestamp) {
 }
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-// Simple Random Function
+// NeuralNet
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-function rnd(r) {
-    return Math.ceil(Math.random() * r);
+class NeuralNet {
+    /**
+     * Initialize NeuralNet.
+     *
+     * @param {Object} setup vaules for the neuralNet
+     * @return {Object} this
+     */
+    constructor (setup) {
+        this.setup        = setup = setup      || {};
+        this.learn        = setup.learn        || 0.001;
+        this.type         = setup.type         || 'standard';
+        this.layers       = setup.layers       || 0;
+        this.epochs       = setup.epochs       || 2000;
+        this.batchSize    = setup.batchSize    || 10;
+        this.losses       = [];
+    }
+
+    /**
+     * Train the Neural Network.
+     *
+     * @param {Object} training values and parameters
+     */
+    train (setup) {
+        let dataset    = setup.dataset;
+        let batchSize  = setup.batchSize || this.batchSize;
+        let inputSize  = dataset[0][0].length;
+        let outputSize = dataset[0][1].length;
+        let epochs     = setup.epochs || this.epochs;
+        let now        = +new Date;
+
+        // Generate layers
+        this.layers = this.layers || Layer.generate(
+            inputSize, outputSize, this.type
+        );
+
+        // Train epochs in random batches
+        Array(epochs).fill().forEach( (_, epoch) => {
+            let batch   = Batcher({ dataset : dataset, size : batchSize })
+            let inputs  = batch.map(a => a[0]);
+            let targets = batch.map(a => a[1]);
+
+            // Forward propagate inputs without modifying tensors
+            let predicted = this.forward(inputs);
+
+            // Calculate Loss and Gradient
+            let loss  = math.mse.loss(predicted, targets);
+            let grads = math.mse.grad(predicted, targets);
+
+            // Save Losses for Charting
+            this.losses.push(loss);
+
+            // Show Progress for long training sessions
+            if (+new Date - now > 1000) {
+                now = +new Date;
+                let cost = this.losses.reduce((a,b)=>a+b)/this.losses.length;
+                console.log(
+                    'training', (epoch + '').padEnd(6)
+                ,   'cost', cost
+                );
+            }
+
+            // Create Gradients for Training
+            grads = this.backward(grads);
+
+            // Learn/SGD
+            // Update Weights and Bias with Learnings for Gradients
+            this.optimize();
+        });
+
+        return this;
+    };
+
+    /**
+     * How big is the AI in Bits and Bytes?
+     *
+     * @return {Number} size in KB of matrix
+     */
+    matrixSize () {
+        return Math.round(this.save().length/1024) + 'KB';
+    };
+
+    /**
+     * Ask the AI a question.
+     *
+     * @param {Tensor} array of inputs for predicting outputs
+     * @return {Tensor} array of answer outputs
+     */
+    predict (features) {
+        return this.forward(features);
+    };
+
+    /**
+     * Load Layers from a JSON String.
+     *
+     * @param {String} JSON string data
+     */
+    load (json) {
+        this.layers = JSON.parse(json);
+    }
+
+    /**
+     * Save Layers as a JSON String.
+     *
+     * @return {String} JSON ouput string
+     */
+    save () {
+        this.layers.forEach(layer =>
+            ['inputs', 'gradients'].map(p => delete layer[p])
+        );
+        return JSON.stringify(this.layers);
+    };
+
+    /**
+     * Forward Propgegation.
+     * Inputs are a batch size, outputs are predictions from batch input.
+     * 
+     * @param {Tensor} array of inputs for predicting outputs
+     * @return {Tensor} array of answer outputs
+     */
+    forward (inputs) {
+        let output = null; 
+        //console.log('inputs',inputs);
+        //inputs = inputs.map(a => a.concat([1]));
+        //console.log('inputs-bias',inputs);
+
+        this.layers.forEach( layer => {
+            layer.inputs = output || inputs;
+            output = math.mmul(
+                layer.inputs,
+                layer.parameters.weights
+            ).map(a => math.add(a, layer.parameters.bias)
+            ).map(a => a.map(math[layer.activation]));
+        });
+
+        return output;
+    }
+
+    /**
+     * Backward Propgegation.
+     * Generate gradient weights and bias from delta of targets and output.
+     * 
+     * @param {Tensor} gradient array of inputs for predicting outputs
+     * @return {Tensor} gradient array of answer outputs
+     */
+    backward (gradient) {
+        this.layers.slice().reverse().forEach( layer => {
+            layer.gradients.bias    = math.sum(gradient[0]);
+            layer.gradients.weights = math.mmul(math.transpose(layer.inputs), gradient);
+            gradient = math.mmul(gradient, math.transpose(layer.parameters.weights));
+            gradient = gradient.map( (a, i) => a.map( (b, k) => b * math[layer.derivative](layer.inputs[i][k]) ) );
+        });
+
+        return gradient;
+    }
+
+    /**
+     * Optimze.
+     * Apply gradient learnings gradually based on learning rate.
+     */
+    optimize() {
+        this.layers.forEach( layer => {
+            // Update weights
+            layer.parameters.weights = layer.parameters.weights
+                  .map((pw, x) =>
+                pw.map((p,  y) => 
+                    p - layer.gradients.weights[x][y] * this.learn
+            ));
+
+            // Update bias
+            layer.parameters.bias = layer.parameters.bias.map(
+                b => b - layer.gradients.bias * this.learn
+            );
+        });
+    }
 }
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-// Run Main
+// Math
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-main();
+class math {}
+
+math.reLU      = (val)  => val * (val > 0);
+math.reLUD     = (val)  => 1. * (math.reLU(val) > 0);
+math.reLUP     = (val)  => 1. * (val > 0);
+math.sigmoid   = (val)  => 1/(1+Math.pow(Math.E, -val));
+math.sigmoidD  = (val)  => math.sigmoid(val) * (1 - math.sigmoid(val));
+math.sigmoidP  = (val)  => val * (1 - val)
+math.tanh      = (val)  => Math.tanh(val)
+math.tanhD     = (val)  => 1 - Math.pow(math.tanh(val), 2);
+math.tanhP     = (val)  => 1 - Math.pow(val, 2);
+math.linear    = (val)  => val;
+math.linearP   = (val)  => val;
+math.transpose = (val)  => val[0].map((x, i) => val.map((y, k) => y[i]));
+math.dot       = (a, b) => a.map((x, i) => x * b[i]).reduce((m, n) => m + n);
+math.mmul      = (a, b) => a.map(x => math.transpose(b).map(y => math.dot(x, y)));
+math.sum       = (a   ) => a.reduce( (x, y) => x + y );
+math.add       = (a, b) => a.map((x, i) => b.map((y, n) => x + y).reduce((x, y) => x + y ));
+
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+// Math Mean Squared Error for Loss and Gradient Error
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+math.mse = {};
+math.mse.grad = (predicted, targets) =>
+    predicted.map( (p, n) => p.map( (p, k) => 2 * (p - targets[n][k]) ));
+math.mse.loss = (predicted, targets) => 
+    math.sum(predicted.map( (p, n) =>
+        math.sum(p.map( (p, k) => (p - Math.pow(targets[n][k]), 2) ))
+    ));
+
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+// Tensor
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+const Tensor = (size, fn) => {
+    let rn = () => 2*Math.random() - 2*Math.random();
+    return Array.from(Array(size || 1), (j, i) => fn ? fn(i) : rn());
+};
+
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+// Training Batches
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+const Batcher = (setup) => {
+    let data  = setup.dataset || console.error("Missing Training Data") || [];
+    let size  = setup.size    || 1;
+    let len   = data.length;
+    return Tensor(size, i => data[Math.round(Math.random()*(len-1))]);
+};
+
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+// Layer
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+const Layer = (setup) => {
+    let count      = Layer.count = (Layer.count || 0) + 1;
+    let activation = setup.activation || "tanh";
+    let name       = setup.name       || "Layer " + count;
+    let input      = setup.input      || 2;
+    let output     = setup.output     || 1;
+    let weights    = Tensor(input,  () => Tensor(output));
+    let bias       = Tensor(output);
+
+    return {
+        name       : name
+    ,   number     : count
+    ,   activation : activation     // forward  propagation
+    ,   derivative : activation+"P" // backward propagation
+    ,   parameters : { bias: bias, weights: weights }
+    ,   gradients  : { bias:   [], weights: [] }
+    };
+};
+
+Layer.generate = (input, output, type='standard', density=3) => {
+    let dense   = density * input;
+    let half    = Math.ceil(input/2);
+    let quarter = Math.ceil(input/4);
+    let tenth   = Math.ceil(input/10);
+
+    return ({
+        standard : () => [
+            Layer({ input: input, output: dense,  activation: 'tanh'   })
+        ,   Layer({ input: dense, output: output, activation: 'linear' })],
+        tanh : () => [
+            Layer({ input: input, output: dense,  activation: 'tanh'   })
+        ,   Layer({ input: dense, output: output, activation: 'linear' })],
+        sigmoid : () => [
+            Layer({ input: input, output: dense,  activation: 'sigmoid' })
+        ,   Layer({ input: dense, output: output, activation: 'linear'  })],
+        reLU : () => [
+            Layer({ input: input, output: dense,  activation: 'reLU'   })
+        ,   Layer({ input: dense, output: output, activation: 'linear' })],
+        deep : () => [
+            Layer({ input: input, output: dense,  activation: 'tanh'   })
+        ,   Layer({ input: dense, output: dense,  activation: 'tanh'   })
+        ,   Layer({ input: dense, output: dense,  activation: 'tanh'   })
+        ,   Layer({ input: dense, output: output, activation: 'linear' })],
+        text : () => [
+            Layer({ input: input,   output: dense,   activation: 'tanh'   })
+        ,   Layer({ input: dense,   output: half,    activation: 'tanh'   })
+        ,   Layer({ input: half,    output: quarter, activation: 'tanh'   })
+        ,   Layer({ input: quarter, output: tenth,   activation: 'tanh'   })
+        ,   Layer({ input: tenth,   output: output,  activation: 'linear' })],
+    })[type]();
+};
