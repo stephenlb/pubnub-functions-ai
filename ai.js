@@ -88,11 +88,11 @@ class Importer {
      */
     static loadJSON (fileName) {
         return new Promise((resolve, reject) => {
-            self.loadFile(fileName)
+            Importer.loadFile(fileName)
                 .catch(err => reject(err))
                 .then(data => {
-                    try      {resolve(JSON.parse(data));}
-                    catch(e) {reject(e);}
+                    try      {resolve(JSON.parse(data))}
+                    catch(e) {reject(e)}
                 });
         });
     }

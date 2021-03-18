@@ -7,13 +7,13 @@ const ai = require('./ai.js');
 // Main
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
-function main() {
-    const training = generateTestTrainingSampleSet(2000);
-    const testing  = generateTestTrainingSampleSet(16);
+async function main() {
+    const testing = generateTestTrainingSampleSet(16);
 
-    // AI Training
+    // AI Model
+    const matrix = await ai.Importer.loadFile('./temperature.pre-trained.json');
     const nn = new ai.NeuralNet({ type : 'tanh', learn : 0.001 });
-    nn.train({ dataset: training, epochs: 10000, batchSize: 10 });
+    nn.load(matrix);
 
     // need a vectorizor
     // makes sure time +1 so minute/hour/day don't zero out
@@ -26,8 +26,6 @@ function main() {
     console.log('\n');
     console.log('predictions', predictions.map(m => m[0]));
     console.log('targets    ', targets.map(m => m[0]));
-    console.log('\n');
-    console.log('size', nn.matrixSize());
     console.log('\n');
 }
 
@@ -63,6 +61,43 @@ function generateTestTrainingSample() {
     const output  = [base - rnd(2) + rnd(2)];
 
     return [input, output];
+}
+
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+// Time Vectorizor
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+// Inputs
+//     3bit - Day-of-week 1 to 7
+//     5bit - Hour 1 to 24
+//     6bit - Minute 1 to 60
+// 
+// Output
+//     64bit - Safe Temperature Rating
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+function timeVector(date) {
+    const dayBits     = 7; // Day of Week 1-7 OneHot
+    const hourBits    = 5; // Hour            Encoded
+    const minuteBits  = 6; // Minute          Encoded
+
+    const day         = date.getDay()     + 1;
+    const hour        = date.getHours()   + 1;
+    const minute      = date.getMinutes() + 1;
+
+    const matrix      = []
+        .concat(ai.Tensor(dayBits,    i => day === 1 + i           ? 1 : 0))
+        .concat(ai.Tensor(hourBits,   i => Math.pow(2, i) & hour   ? 1 : 0))
+        .concat(ai.Tensor(minuteBits, i => Math.pow(2, i) & minute ? 1 : 0));
+
+    return matrix;
+}
+
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+// Create Date from Unix Timestamp in Seconds
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+// const mydate = dateFromTimestamp(1616042947);
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+function dateFromTimestamp(timestamp) {
+    return timestamp ? new Date(timestamp * 1000) : new Date();
 }
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
