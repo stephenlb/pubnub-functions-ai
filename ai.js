@@ -320,7 +320,11 @@ class NeuralNet {
             // Show Progress for long training sessions
             if (+new Date - now > 1000) {
                 now = +new Date;
-                console.log('epoch', epoch, 'loss', loss);
+                let cost = this.losses.reduce((a,b)=>a+b)/this.losses.length;
+                console.log(
+                    'training', (epoch + '').padEnd(6)
+                ,   'cost', cost
+                );
             }
 
             // Create Gradients for Training
