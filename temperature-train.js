@@ -6,7 +6,6 @@ const ai = require('./ai.js');
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 // Main
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-
 function main() {
     const training = generateTestTrainingSampleSet(2000);
     const testing  = generateTestTrainingSampleSet(16);
@@ -25,8 +24,8 @@ function main() {
     console.log('targets    ', targets.map(    m => m[0]));
     console.log('\n');
     console.log('matrix size', nn.matrixSize());
-    console.log('\n');
-    console.log(nn.save());
+    //console.log('\n');
+    //console.log(nn.save());
 }
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
