@@ -372,7 +372,7 @@ class NeuralNet {
      * @return {String} JSON ouput string
      */
     save () {
-        this.layers.forEach(layer =>
+        0&&this.layers.forEach(layer =>
             ['inputs', 'gradients'].map(p => delete layer[p])
         );
         return JSON.stringify(this.layers);

@@ -17,10 +17,11 @@ const modelFileURI = `http://${modelDomain}/${modelFile}`;
 export default (request) => {
     if (!preTrainedModel) return xhr.fetch(modelFileURI).then( response => {
         const body = response.body;
-        preTrainedModel = new NeuralNet({ type : 'tanh', learn : 0.001 });
+        preTrainedModel = new NeuralNet({ type : 'tanh', learn : 0.005 });
         preTrainedModel.load(body);
         const analysis = analize(request.message);
         request.message.analysis = analysis;
+        train(request.message);
         return request.ok();
     }).catch((err) => {
         return request.ok();
@@ -28,6 +29,7 @@ export default (request) => {
 
     const analysis = analize(request.message);
     request.message.analysis = analysis;
+    train(request.message);
     return request.ok();
 };
 
@@ -54,6 +56,18 @@ function analize(message) {
         proximity   : `${proximity}%`,
         safe        : !exceeded,
     };
+}
+
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+// Train Continuously
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+function train(message) {
+    const temperature = message.temperature;
+    const date        = dateFromTimestamp(message.timestamp);
+    const vector      = timeVector(date);
+    const dataset     = [[vector, [temperature]]];
+    
+    return preTrainedModel.train({ dataset: dataset, epochs: 1, batchSize: 1 });
 }
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=

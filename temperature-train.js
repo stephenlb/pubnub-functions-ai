@@ -13,10 +13,7 @@ function main() {
 
     // AI Training
     const nn = new ai.NeuralNet({ type : 'tanh', learn : 0.001 });
-    nn.train({ dataset: training, epochs: 10000, batchSize: 10 });
-
-    // need a vectorizor
-    // makes sure time +1 so minute/hour/day don't zero out
+    nn.train({ dataset: training, epochs: 5000, batchSize: 10 });
 
     // Predict
     let inputs      = testing.map( m => m[0] );
@@ -25,10 +22,11 @@ function main() {
 
     console.log('\n');
     console.log('predictions', predictions.map(m => m[0]));
-    console.log('targets    ', targets.map(m => m[0]));
+    console.log('targets    ', targets.map(    m => m[0]));
     console.log('\n');
-    console.log('size', nn.matrixSize());
+    console.log('matrix size', nn.matrixSize());
     console.log('\n');
+    console.log(nn.save());
 }
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
